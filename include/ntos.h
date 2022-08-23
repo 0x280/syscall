@@ -34,6 +34,10 @@
 #pragma warning(disable : 4201) // nonstandard extension used : nameless struct/union
 #pragma warning(disable : 4214) // nonstandard extension used : bit field types other than int
 #pragma warning(disable : 4005)
+#pragma warning(disable : 4068)
+
+#pragma clang diagnostic ignored "-Wpragma-pack"
+#pragma clang diagnostic ignored "-Wextra-tokens"
 
 #ifndef NTOS_RTL
 #define NTOS_RTL
@@ -14849,4 +14853,4 @@ NTSYSAPI UNICODE_STRING RtlNtPathSeperatorString;
 
 #pragma warning(pop)
 
-#endif NTOS_RTL
+#endif
