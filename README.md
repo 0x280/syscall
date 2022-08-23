@@ -2,7 +2,7 @@
 
 ## Note
 
-I did this in < 1h so the code is kinda messy but functional
+I did this in < 1h so the code is kinda messy but functional. Threading support is limited, tested on clang and msvc.
 
 ## Usage
 
