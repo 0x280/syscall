@@ -2,7 +2,7 @@
 
 ## Note
 
-I did this in < 1h so the code is kinda messy but functional. Threading support is limited, tested on clang and msvc.
+I did this in < 1h so the code is kinda messy but functional. Threading support is limited, tested on clang and msvc. This can be detected using instrumentation callbacks.
 
 ## Usage
 
