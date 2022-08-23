@@ -1,0 +1,5 @@
+.vscode/
+.vs/
+out/
+build/
+dist/
