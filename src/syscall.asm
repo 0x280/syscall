@@ -13,6 +13,7 @@ __invoke_syscall proc
     mov r10, rcx
     mov eax, wSystemCall
     syscall
+    retn
 __invoke_syscall endp
 
 end
