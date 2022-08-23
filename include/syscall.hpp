@@ -15,7 +15,7 @@
 
 namespace syscall
 {
-    extern "C" void __setup_syscall(std::uint16_t wSystemCall);
+    extern "C" void __setup_syscall(std::uint32_t wSystemCall);
     extern "C" void __invoke_syscall(void);
 
     SYSCALL_FORCEINLINE constexpr std::uint64_t keygen() noexcept
@@ -80,7 +80,7 @@ namespace syscall
     }
 
     inline std::mutex mtx;
-    inline std::vector<std::pair<std::uint64_t, std::uint16_t>> syscallCache{};
+    inline std::vector<std::pair<std::uint64_t, std::uint32_t>> syscallCache{};
 
     template <std::uint64_t syscall_hash, class syscall_type>
     SYSCALL_FORCEINLINE syscall_type get()
@@ -102,7 +102,7 @@ namespace syscall
         PWORD namesOrdinalPtr = nullptr;
 
         PVOID exportAddr = nullptr;
-        std::uint16_t sc = 0;
+        std::uint32_t sc = 0;
 
         std::lock_guard lg(mtx);
 
