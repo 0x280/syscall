@@ -106,6 +106,15 @@ namespace syscall
 
         std::lock_guard lg(mtx);
 
+        for (const auto &entry : syscallCache)
+        {
+            if (entry.first == syscall_hash)
+            {
+                sc = entry.second;
+                goto cleanup;
+            }
+        }
+
         // get ntdll base
         for (PLIST_ENTRY pListEntry = ldr->InMemoryOrderModuleList.Flink; pListEntry != &ldr->InMemoryOrderModuleList; pListEntry = pListEntry->Flink)
         {
@@ -168,6 +177,11 @@ namespace syscall
                 sc = (high << 8) | low;
                 break;
             }
+        }
+
+        if (sc != 0)
+        {
+            syscallCache.push_back({syscall_hash, sc});
         }
 
     cleanup:
