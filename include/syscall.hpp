@@ -9,7 +9,6 @@
 #endif
 
 #include <cstdint>
-#include <mutex>
 #include <vector>
 #include "ntos.h"
 
@@ -79,12 +78,46 @@ namespace syscall
         return hash;
     }
 
-    inline std::mutex mtx;
+    class spinlock
+    {
+    private:
+        bool locked;
+    public:
+        spinlock() : locked(false) {}
+        ~spinlock() {}
+
+        void aquire()
+        {
+            while (locked) {}
+            locked = true;
+        }
+        void release()
+        {
+            locked = false;
+        }
+    };
+
+    class spinlock_guard
+    {
+    private:
+        spinlock &lock;
+    public:
+        spinlock_guard(spinlock &lock) : lock(lock)
+        {
+            lock.aquire();
+        }
+        ~spinlock_guard()
+        {
+            lock.release();
+        }
+    };
+
+    inline spinlock mtx;
     inline std::vector<std::pair<std::uint64_t, std::uint32_t>> syscallCache{};
 
     SYSCALL_FORCEINLINE void setup_cache()
     {
-        std::lock_guard<std::mutex> lock(mtx);
+        spinlock_guard lock(mtx);
 
         if (!syscallCache.empty())
             syscallCache.clear();
