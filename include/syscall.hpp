@@ -34,7 +34,7 @@ namespace syscall
     SYSCALL_FORCEINLINE constexpr std::uint64_t strhash(const char *str) noexcept
     {
         std::uint64_t hash = keygen();
-        char c;
+        char c = 0;
 
         while ((c = *str++))
             hash = ((hash << 0x5) + hash) + c;
@@ -44,7 +44,7 @@ namespace syscall
     SYSCALL_FORCEINLINE constexpr std::uint64_t strhash(const char *str, const std::uint32_t len) noexcept
     {
         std::uint64_t hash = keygen();
-        char c;
+        char c = 0;
 
         for (std::uint32_t i = 0; i < len; i++)
         {
@@ -57,7 +57,7 @@ namespace syscall
     SYSCALL_FORCEINLINE constexpr std::uint64_t strhash(const wchar_t *str) noexcept
     {
         std::uint64_t hash = keygen();
-        wchar_t c;
+        wchar_t c = 0;
 
         while ((c = *str++))
             hash = ((hash << 0x5) + hash) + c;
@@ -67,7 +67,7 @@ namespace syscall
     SYSCALL_FORCEINLINE constexpr std::uint64_t strhash(const wchar_t *str, const std::uint32_t len) noexcept
     {
         std::uint64_t hash = keygen();
-        wchar_t c;
+        wchar_t c = 0;
 
         for (std::uint32_t i = 0; i < len; i++)
         {
@@ -82,13 +82,16 @@ namespace syscall
     {
     private:
         bool locked;
+
     public:
         spinlock() : locked(false) {}
         ~spinlock() {}
 
         void aquire()
         {
-            while (locked) {}
+            while (locked)
+            {
+            }
             locked = true;
         }
         void release()
@@ -101,6 +104,7 @@ namespace syscall
     {
     private:
         spinlock &lock;
+
     public:
         spinlock_guard(spinlock &lock) : lock(lock)
         {
@@ -175,20 +179,21 @@ namespace syscall
             // extract syscall, pasted from https://github.com/am0nsec/HellsGate
             for (std::uint16_t i = 0; true; i++)
             {
-                if (*((PBYTE)exportAddr + i) == 0x0F && *((PBYTE)exportAddr + i + 1) == 0x05)
+                if (*((PBYTE)funcAddr + i) == 0x0F && *((PBYTE)funcAddr + i + 1) == 0x05)
                     break;
 
-                if (*((PBYTE)exportAddr + i) == 0xC3)
+                if (*((PBYTE)funcAddr + i) == 0xC3)
                     break;
 
-                if (*((PBYTE)exportAddr + i) == 0x4C && *((PBYTE)exportAddr + i + 1) == 0x8B && *((PBYTE)exportAddr + i + 2) == 0xD1 &&
-                    *((PBYTE)exportAddr + i + 3) == 0xB8 && *((PBYTE)exportAddr + i + 6) == 0x00 && *((PBYTE)exportAddr + i + 7) == 0x00)
+                if (*((PBYTE)funcAddr + i) == 0x4C && *((PBYTE)funcAddr + i + 1) == 0x8B && *((PBYTE)funcAddr + i + 2) == 0xD1 &&
+                    *((PBYTE)funcAddr + i + 3) == 0xB8 && *((PBYTE)funcAddr + i + 6) == 0x00 && *((PBYTE)funcAddr + i + 7) == 0x00)
                 {
-                    BYTE high = *((PBYTE)exportAddr + 5 + i);
-                    BYTE low = *((PBYTE)exportAddr + 4 + i);
+                    BYTE high = *((PBYTE)funcAddr + 5 + i);
+                    BYTE low = *((PBYTE)funcAddr + 4 + i);
                     std::uint32_t syscallNr = (high << 8) | low;
 
-                    if (syscallNr != 0) {
+                    if (syscallNr != 0)
+                    {
                         // insert syscall into cache
                         syscallCache.push_back(std::make_pair(funcHash, syscallNr));
                         continue;
@@ -206,7 +211,7 @@ namespace syscall
         if (syscallCache.empty())
             setup_cache();
 
-        std::lock_guard lg(mtx);
+        spinlock_guard lg(mtx);
         for (const auto &entry : syscallCache)
         {
             if (entry.first == syscall_hash)
