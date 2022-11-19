@@ -10,6 +10,8 @@
 
 #include <cstdint>
 #include <vector>
+#include "ntos.h"
+
 namespace syscall
 {
     extern "C" void __setup_syscall(std::uint32_t wSystemCall);
