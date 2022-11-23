@@ -4,6 +4,9 @@
 
 I did this in < 1h so the code is kinda messy but functional. Threading support is limited, tested on clang and msvc. This can be detected using instrumentation callbacks. Another thing to note is that this doesn't need any API imports by using the PEB/LDR.
 
+## But why wouldn't you use [inline_syscall](https://github.com/JustasMasiulis/inline_syscall)?
+Because msvc :(
+
 ## Usage
 
 ```cpp
