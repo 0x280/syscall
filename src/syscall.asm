@@ -1,12 +1,11 @@
 .data
-	wSystemCall DWORD 000h
-
+    wSystemCall DWORD 000h
 .code 
 
 __setup_syscall proc
     mov wSystemCall, 000h
-	mov wSystemCall, ecx
-	ret
+    mov wSystemCall, ecx
+    ret
 __setup_syscall endp
 
 __invoke_syscall proc
