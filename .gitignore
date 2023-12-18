@@ -1,5 +1,3 @@
 .vscode/
-.vs/
-out/
 build/
-dist/
+target/

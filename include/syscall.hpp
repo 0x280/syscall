@@ -1,180 +1,191 @@
 #pragma once
-#ifndef SYSCALL_H_
-#define SYSCALL_H_
 
 #ifdef _MSC_VER
 #define SYSCALL_FORCEINLINE __forceinline
 #else
-#define SYSCALL_FORCEINLINE __attribute__((always_inline)) inline
+#define SYSCALL_FORCEINLINE inline __attribute__((always_inline))
 #endif
 
 #include <cstdint>
-#include <vector>
-#include "ntos.h"
+#include <cstddef>
+#include <map>
+#include <cassert>
+
+#include <ntos.h>
 
 namespace syscall
 {
-    extern "C" void __setup_syscall(std::uint32_t wSystemCall);
+    extern "C" void __setup_syscall(std::uint32_t dwSyscallIndex);
     extern "C" void __invoke_syscall(void);
 
-    SYSCALL_FORCEINLINE constexpr std::uint64_t keygen() noexcept
+    using key_t = std::uint64_t;
+    using syscall_index_t = std::uint32_t;
+
+    /**
+     * @brief Generates a random uint64_t key at compile time.
+     *
+     * @return constexpr std::uint64_t
+     */
+    SYSCALL_FORCEINLINE constexpr key_t __generate_key() noexcept
     {
         char time[] = __TIME__;
+
         for (std::size_t i = 0; i < sizeof(time); i++)
         {
             time[i] = (time[i] + 125) << 2;
         }
 
-        std::uint64_t value = 165484186ul;
+        const std::uint64_t seed = 0xdeadbeef;
 
-        for (char c : time)
-            value = static_cast<std::uint64_t>((value ^ c) * 16777619ull);
-        return value;
+        std::uint64_t key = seed;
+        for (std::size_t i = 0; i < sizeof(time); i++)
+        {
+            key = (key ^ time[i]) * seed;
+        }
+
+        return key;
     }
-    SYSCALL_FORCEINLINE constexpr std::uint64_t strhash(const char *str) noexcept
+
+    /**
+     * @brief Hashes a string at compile time.
+     *
+     * @param str
+     * @return constexpr std::uint64_t
+     */
+    SYSCALL_FORCEINLINE constexpr key_t __hash_str(const char *str) noexcept
     {
-        std::uint64_t hash = keygen();
+        std::uint64_t hash = __generate_key();
+
         char c = 0;
-
         while ((c = *str++))
-            hash = ((hash << 0x5) + hash) + c;
-
-        return hash;
-    }
-    SYSCALL_FORCEINLINE constexpr std::uint64_t strhash(const char *str, const std::uint32_t len) noexcept
-    {
-        std::uint64_t hash = keygen();
-        char c = 0;
-
-        for (std::uint32_t i = 0; i < len; i++)
         {
-            c = *(str + i);
-            hash = ((hash << 0x5) + hash) + c;
+            hash = hash ^ (c << (c % 8));
         }
 
         return hash;
     }
-    SYSCALL_FORCEINLINE constexpr std::uint64_t strhash(const wchar_t *str) noexcept
-    {
-        std::uint64_t hash = keygen();
-        wchar_t c = 0;
 
+    /**
+     * @brief Hashes a string at compile time.
+     *
+     * @param str
+     * @param len
+     * @return constexpr std::uint64_t
+     */
+    SYSCALL_FORCEINLINE constexpr key_t __hash_str(const char *str, const std::size_t len) noexcept
+    {
+        std::uint64_t hash = __generate_key();
+
+        for (std::size_t i = 0; i < len; i++)
+        {
+            hash = hash ^ (str[i] << (str[i] % 8));
+        }
+
+        return hash;
+    }
+
+    /**
+     * @brief Hashes a string at compile time. Non-ASCII characters will be ignored.
+     *
+     * @param str
+     * @return constexpr std::uint64_t
+     */
+    SYSCALL_FORCEINLINE constexpr key_t __hash_str(const wchar_t *str) noexcept
+    {
+        std::uint64_t hash = __generate_key();
+
+        wchar_t c = 0;
         while ((c = *str++))
-            hash = ((hash << 0x5) + hash) + c;
-
-        return hash;
-    }
-    SYSCALL_FORCEINLINE constexpr std::uint64_t strhash(const wchar_t *str, const std::uint32_t len) noexcept
-    {
-        std::uint64_t hash = keygen();
-        wchar_t c = 0;
-
-        for (std::uint32_t i = 0; i < len; i++)
         {
-            c = *(str + i);
-            hash = ((hash << 0x5) + hash) + c;
-        }
-
-        return hash;
-    }
-
-    class spinlock
-    {
-    private:
-        bool locked;
-
-    public:
-        spinlock() : locked(false) {}
-        ~spinlock() {}
-
-        void aquire()
-        {
-            while (locked)
-            {
-            }
-            locked = true;
-        }
-        void release()
-        {
-            locked = false;
-        }
-    };
-
-    class spinlock_guard
-    {
-    private:
-        spinlock &lock;
-
-    public:
-        spinlock_guard(spinlock &lock) : lock(lock)
-        {
-            lock.aquire();
-        }
-        ~spinlock_guard()
-        {
-            lock.release();
-        }
-    };
-
-    inline spinlock mtx;
-    inline std::vector<std::pair<std::uint64_t, std::uint32_t>> syscallCache{};
-
-    SYSCALL_FORCEINLINE void setup_cache()
-    {
-        spinlock_guard lock(mtx);
-
-        if (!syscallCache.empty())
-            syscallCache.clear();
-
-        // const/static vars
-        const std::uint64_t ntdll_hash = strhash(L"ntdll.dll");
-
-        // vars
-        PPEB peb = reinterpret_cast<PPEB>(__readgsqword(0x60));
-        PPEB_LDR_DATA ldr = peb->Ldr;
-        PVOID ntdllBase = nullptr;
-        PIMAGE_DOS_HEADER dosHeaders = nullptr;
-        PIMAGE_NT_HEADERS ntHeaders = nullptr;
-        PIMAGE_EXPORT_DIRECTORY exportDir = nullptr;
-        PDWORD functionsPtr = nullptr;
-        PDWORD namesPtr = nullptr;
-        PWORD namesOrdinalPtr = nullptr;
-
-        // find ntdll.dll
-        for (PLIST_ENTRY pListEntry = ldr->InMemoryOrderModuleList.Flink; pListEntry != &ldr->InMemoryOrderModuleList; pListEntry = pListEntry->Flink)
-        {
-            if (!pListEntry)
+            if (c > 0x7f)
                 continue;
-            PLDR_DATA_TABLE_ENTRY pEntry = CONTAINING_RECORD(pListEntry, LDR_DATA_TABLE_ENTRY, InMemoryOrderLinks);
-            if (strhash(pEntry->BaseDllName.Buffer, pEntry->BaseDllName.Length / sizeof(wchar_t)) == ntdll_hash)
+
+            hash = hash ^ (c << (c % 8));
+        }
+
+        return hash;
+    }
+
+    /**
+     * @brief Hashes a string at compile time. Non-ASCII characters will be ignored.
+     *
+     * @param str
+     * @param len
+     * @return constexpr std::uint64_t
+     */
+    SYSCALL_FORCEINLINE constexpr key_t __hash_str(const wchar_t *str, const std::size_t len) noexcept
+    {
+        std::uint64_t hash = __generate_key();
+
+        for (std::size_t i = 0; i < len; i++)
+        {
+            if (str[i] > 0x7f)
+                continue;
+
+            hash = hash ^ (str[i] << (str[i] % 8));
+        }
+
+        return hash;
+    }
+
+    /**
+     * @brief Gets the PEB at runtime by reading the GS register.
+     *
+     * @return PPEB
+     */
+    SYSCALL_FORCEINLINE PPEB __get_peb() noexcept
+    {
+        return reinterpret_cast<PPEB>(__readgsqword(0x60));
+    }
+
+    inline std::map<key_t, syscall_index_t> __syscall_map = {}; // Maps a hash to a syscall index.
+    inline const key_t NTDLL_HASH = __hash_str("ntdll.dll");
+
+    SYSCALL_FORCEINLINE void __setup_cache()
+    {
+        // clear the map in case it's already populated
+        if (!__syscall_map.empty())
+            __syscall_map.clear();
+
+        // get the ldr data table entry for ntdll
+        PLDR_DATA_TABLE_ENTRY pNtDll = nullptr;
+        {
+            PPEB peb = __get_peb();
+            PPEB_LDR_DATA ldr = peb->Ldr;
+
+            for (PLIST_ENTRY pListEntry = ldr->InMemoryOrderModuleList.Flink; pListEntry != &ldr->InMemoryOrderModuleList; pListEntry = pListEntry->Flink)
             {
-                ntdllBase = pEntry->DllBase;
-                break;
+                PLDR_DATA_TABLE_ENTRY pEntry = CONTAINING_RECORD(pListEntry, LDR_DATA_TABLE_ENTRY, InMemoryOrderLinks);
+                if (__hash_str(pEntry->BaseDllName.Buffer, pEntry->BaseDllName.Length / sizeof(wchar_t)) == NTDLL_HASH)
+                {
+                    pNtDll = pEntry;
+                    break;
+                }
             }
         }
-        if (ntdllBase == nullptr)
+
+        assert(pNtDll != nullptr);
+        if (pNtDll == nullptr) // couldn't find ntdll
             return;
 
-        // get function export
-        dosHeaders = (PIMAGE_DOS_HEADER)ntdllBase;
-        if (dosHeaders->e_magic != IMAGE_DOS_SIGNATURE)
-            return;
+        // get the export directory
+        PIMAGE_NT_HEADERS pNtHeaders = reinterpret_cast<PIMAGE_NT_HEADERS>(reinterpret_cast<std::uint64_t>(pNtDll->DllBase) + reinterpret_cast<PIMAGE_DOS_HEADER>(pNtDll->DllBase)->e_lfanew);
+        PIMAGE_DATA_DIRECTORY pExportDirectory = &pNtHeaders->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT];
 
-        ntHeaders = (PIMAGE_NT_HEADERS)((PBYTE)dosHeaders + dosHeaders->e_lfanew);
-        if (ntHeaders->Signature != IMAGE_NT_SIGNATURE)
-            return;
+        // get the export directory entries
+        PIMAGE_EXPORT_DIRECTORY pExport = reinterpret_cast<PIMAGE_EXPORT_DIRECTORY>(reinterpret_cast<std::uint64_t>(pNtDll->DllBase) + pExportDirectory->VirtualAddress);
+        std::uint32_t *pAddressOfFunctions = reinterpret_cast<std::uint32_t *>(reinterpret_cast<std::uint64_t>(pNtDll->DllBase) + pExport->AddressOfFunctions);
+        std::uint32_t *pAddressOfNames = reinterpret_cast<std::uint32_t *>(reinterpret_cast<std::uint64_t>(pNtDll->DllBase) + pExport->AddressOfNames);
+        std::uint16_t *pAddressOfNameOrdinals = reinterpret_cast<std::uint16_t *>(reinterpret_cast<std::uint64_t>(pNtDll->DllBase) + pExport->AddressOfNameOrdinals);
 
-        exportDir = (PIMAGE_EXPORT_DIRECTORY)((PBYTE)dosHeaders + ntHeaders->OptionalHeader.DataDirectory[0].VirtualAddress);
-        functionsPtr = (PDWORD)((PBYTE)dosHeaders + exportDir->AddressOfFunctions);
-        namesPtr = (PDWORD)((PBYTE)dosHeaders + exportDir->AddressOfNames);
-        namesOrdinalPtr = (PWORD)((PBYTE)dosHeaders + exportDir->AddressOfNameOrdinals);
-
-        // enumerate exports
-        for (std::uint16_t i = 0; i < exportDir->NumberOfNames; i++)
+        // iterate through the export directory entries
+        for (std::uint32_t i = 0; i < pExport->NumberOfFunctions; i++)
         {
-            auto funcName = (PCHAR)((PBYTE)dosHeaders + namesPtr[i]);
-            auto funcAddr = (PVOID)((PBYTE)dosHeaders + functionsPtr[namesOrdinalPtr[i]]);
-            auto funcHash = strhash(funcName);
+            // get the function name
+            const char *pName = reinterpret_cast<const char *>(reinterpret_cast<std::uint64_t>(pNtDll->DllBase) + pAddressOfNames[i]);
+
+            // get the function address
+            void *funcAddr = reinterpret_cast<void *>(reinterpret_cast<std::uint64_t>(pNtDll->DllBase) + pAddressOfFunctions[pAddressOfNameOrdinals[i]]);
 
             // extract syscall, pasted from https://github.com/am0nsec/HellsGate
             for (std::uint16_t i = 0; true; i++)
@@ -194,8 +205,11 @@ namespace syscall
 
                     if (syscallNr != 0)
                     {
+                        // hash the function name
+                        key_t hash = __hash_str(pName);
+
                         // insert syscall into cache
-                        syscallCache.push_back(std::make_pair(funcHash, syscallNr));
+                        __syscall_map[hash] = syscallNr;
                         continue;
                     }
                 }
@@ -203,30 +217,30 @@ namespace syscall
         }
     }
 
-    template <std::uint64_t syscall_hash, class syscall_type>
-    SYSCALL_FORCEINLINE syscall_type get()
+    template <key_t hash, class syscall_t>
+    SYSCALL_FORCEINLINE syscall_t __get_syscall()
     {
-        std::uint32_t sc = 0;
+        // check if the cache is empty
+        if (__syscall_map.empty())
+            __setup_cache();
 
-        if (syscallCache.empty())
-            setup_cache();
+        // check if the cache is still empty
+        if (__syscall_map.empty())
+            return nullptr;
 
-        spinlock_guard lg(mtx);
-        for (const auto &entry : syscallCache)
-        {
-            if (entry.first == syscall_hash)
-            {
-                sc = entry.second;
-                goto cleanup;
-            }
-        }
+        // check if the hash is in the cache
+        if (__syscall_map.find(hash) == __syscall_map.end())
+            return nullptr;
 
-    cleanup:
-        __setup_syscall(sc);
-        return (syscall_type)__invoke_syscall;
+        // get the syscall index from the cache
+        syscall_index_t syscallIndex = __syscall_map[hash];
+
+        // setup the syscall
+        __setup_syscall(syscallIndex);
+
+        // return the syscall
+        return reinterpret_cast<syscall_t>(__invoke_syscall);
     }
 }
 
-#define SYSCALL(name) syscall::get<syscall::strhash(#name), decltype(&name)>()
-
-#endif
+#define SYSCALL(name) syscall::__get_syscall<syscall::__hash_str(#name), decltype(&name)>()
