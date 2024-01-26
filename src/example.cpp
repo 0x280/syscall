@@ -1,10 +1,16 @@
 #include <syscall.hpp>
 
+#include <Windows.h>
 #include <ntstatus.h>
 #include <iostream>
 
+typedef HKL(WINAPI *NtUserGetKeyboardLayout)(DWORD idThread);
+typedef BOOL(WINAPI *NtUserGetKeyboardLayoutName)(LPWSTR pwszKLID);
+
 int main()
 {
+    LoadLibraryA("user32.dll");
+
     NTSTATUS status = STATUS_SUCCESS;
 
     PVOID base_address = nullptr;
@@ -50,4 +56,11 @@ int main()
         return 1;
     }
     std::cout << "[+] Freed memory" << std::endl;
+
+    auto ntUserGetKeyboardLayout = syscall::__get_syscall<syscall::__hash_str("NtUserGetKeyboardLayout"), NtUserGetKeyboardLayout>();
+
+    printf("NtUserGetKeyboardLayout: 0x%p\n", ntUserGetKeyboardLayout);
+
+    HKL hkl = ntUserGetKeyboardLayout(0);
+    printf("NtUserGetKeyboardLayout(0): 0x%p\n", hkl);
 }
