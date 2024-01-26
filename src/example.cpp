@@ -57,7 +57,7 @@ int main()
     }
     std::cout << "[+] Freed memory" << std::endl;
 
-    auto ntUserGetKeyboardLayout = syscall::__get_syscall<syscall::__hash_str("NtUserGetKeyboardLayout"), NtUserGetKeyboardLayout>();
+    auto ntUserGetKeyboardLayout = syscall::get_syscall<syscall::hash_str("NtUserGetKeyboardLayout"), NtUserGetKeyboardLayout>();
 
     printf("NtUserGetKeyboardLayout: 0x%p\n", ntUserGetKeyboardLayout);
 

@@ -18,33 +18,12 @@ namespace syscall
     extern "C" void __setup_syscall(std::uint32_t dwSyscallIndex);
     extern "C" void __invoke_syscall(void);
 
-    using key_t = std::uint64_t;
+    using key_t = std::size_t;
     using syscall_index_t = std::uint32_t;
 
-    /**
-     * @brief Generates a random uint64_t key at compile time.
-     *
-     * @return constexpr std::uint64_t
-     */
-    SYSCALL_FORCEINLINE constexpr key_t __generate_key() noexcept
-    {
-        char time[] = __TIME__;
-
-        for (std::size_t i = 0; i < sizeof(time); i++)
-        {
-            time[i] = (time[i] + 125) << 2;
-        }
-
-        const std::uint64_t seed = 0xdeadbeef;
-
-        std::uint64_t key = seed;
-        for (std::size_t i = 0; i < sizeof(time); i++)
-        {
-            key = (key ^ time[i]) * seed;
-        }
-
-        return key;
-    }
+    // FNV-1a hash constants
+    constexpr key_t FNV_PRIME = 1099511628211u;
+    constexpr key_t FNV_OFFSET_BASIS = 14695981039346656037u;
 
     /**
      * @brief Hashes a string at compile time.
@@ -52,17 +31,9 @@ namespace syscall
      * @param str
      * @return constexpr std::uint64_t
      */
-    SYSCALL_FORCEINLINE constexpr key_t __hash_str(const char *str) noexcept
+    SYSCALL_FORCEINLINE constexpr key_t hash_str(const char* str, key_t hash = FNV_OFFSET_BASIS) noexcept
     {
-        std::uint64_t hash = __generate_key();
-
-        char c = 0;
-        while ((c = *str++))
-        {
-            hash = hash ^ (c << (c % 8));
-        }
-
-        return hash;
+        return (*str == '\0') ? hash : hash_str(str + 1, (hash ^ static_cast<key_t>(*str)) * FNV_PRIME);
     }
 
     /**
@@ -72,16 +43,9 @@ namespace syscall
      * @param len
      * @return constexpr std::uint64_t
      */
-    SYSCALL_FORCEINLINE constexpr key_t __hash_str(const char *str, const std::size_t len) noexcept
+    SYSCALL_FORCEINLINE constexpr key_t hash_str_(const char* str, const std::size_t len, key_t hash = FNV_OFFSET_BASIS) noexcept
     {
-        std::uint64_t hash = __generate_key();
-
-        for (std::size_t i = 0; i < len; i++)
-        {
-            hash = hash ^ (str[i] << (str[i] % 8));
-        }
-
-        return hash;
+        return (len == 0) ? hash : hash_str_(str + 1, len - 1, (hash ^ static_cast<key_t>(*str)) * FNV_PRIME);
     }
 
     /**
@@ -90,20 +54,9 @@ namespace syscall
      * @param str
      * @return constexpr std::uint64_t
      */
-    SYSCALL_FORCEINLINE constexpr key_t __hash_str(const wchar_t *str) noexcept
+    SYSCALL_FORCEINLINE constexpr key_t hash_str(const wchar_t* str, key_t hash = FNV_OFFSET_BASIS) noexcept
     {
-        std::uint64_t hash = __generate_key();
-
-        wchar_t c = 0;
-        while ((c = *str++))
-        {
-            if (c > 0x7f)
-                continue;
-
-            hash = hash ^ (c << (c % 8));
-        }
-
-        return hash;
+        return (*str == L'\0') ? hash : ((*str < 128) ? hash_str(str + 1, (hash ^ static_cast<key_t>(*str)) * FNV_PRIME) : hash_str(str + 1, hash));
     }
 
     /**
@@ -113,20 +66,9 @@ namespace syscall
      * @param len
      * @return constexpr std::uint64_t
      */
-    SYSCALL_FORCEINLINE constexpr key_t __hash_str(const wchar_t *str, const std::size_t len) noexcept
-    {
-        std::uint64_t hash = __generate_key();
-
-        for (std::size_t i = 0; i < len; i++)
-        {
-            if (str[i] > 0x7f)
-                continue;
-
-            hash = hash ^ (str[i] << (str[i] % 8));
-        }
-
-        return hash;
-    }
+    SYSCALL_FORCEINLINE constexpr key_t hash_str_(const wchar_t* str, const std::size_t len, key_t hash = FNV_OFFSET_BASIS) noexcept {
+    return (len == 0) ? hash : ((*str < 128) ? hash_str_(str + 1, len - 1, (hash ^ static_cast<key_t>(*str)) * FNV_PRIME) : hash_str_(str + 1, len - 1, hash));
+}
 
     /**
      * @brief Gets the PEB at runtime by reading the GS register.
@@ -139,8 +81,8 @@ namespace syscall
     }
 
     inline std::map<key_t, syscall_index_t> __syscall_map = {}; // Maps a hash to a syscall index.
-    inline const key_t NTDLL_HASH = __hash_str("ntdll.dll");
-    inline const key_t WIN32U_HASH = __hash_str("win32u.dll");
+    inline const key_t NTDLL_HASH = hash_str("ntdll.dll");
+    inline const key_t WIN32U_HASH = hash_str("win32u.dll");
 
     SYSCALL_FORCEINLINE void __setup_cache_for_module(PLDR_DATA_TABLE_ENTRY pModule)
     {
@@ -186,7 +128,7 @@ namespace syscall
                     if (syscallNr != 0)
                     {
                         // hash the function name
-                        key_t hash = __hash_str(pName);
+                        key_t hash = hash_str(pName);
 
                         // insert syscall into cache
                         __syscall_map[hash] = syscallNr;
@@ -210,7 +152,7 @@ namespace syscall
             for (PLIST_ENTRY pListEntry = ldr->InMemoryOrderModuleList.Flink; pListEntry != &ldr->InMemoryOrderModuleList; pListEntry = pListEntry->Flink)
             {
                 PLDR_DATA_TABLE_ENTRY pEntry = CONTAINING_RECORD(pListEntry, LDR_DATA_TABLE_ENTRY, InMemoryOrderLinks);
-                key_t nameHash = __hash_str(pEntry->BaseDllName.Buffer, pEntry->BaseDllName.Length / sizeof(wchar_t));
+                key_t nameHash = hash_str_(pEntry->BaseDllName.Buffer, pEntry->BaseDllName.Length / sizeof(wchar_t));
                 if (nameHash == NTDLL_HASH || nameHash == WIN32U_HASH)
                 {
                     __setup_cache_for_module(pEntry);
@@ -220,7 +162,7 @@ namespace syscall
     }
 
     template <key_t hash, class syscall_t>
-    SYSCALL_FORCEINLINE syscall_t __get_syscall()
+    SYSCALL_FORCEINLINE syscall_t get_syscall()
     {
         // check if the cache is empty
         if (__syscall_map.empty())
@@ -245,4 +187,4 @@ namespace syscall
     }
 }
 
-#define SYSCALL(name) syscall::__get_syscall<syscall::__hash_str(#name), decltype(&name)>()
+#define SYSCALL(name) syscall::get_syscall<syscall::hash_str(#name), decltype(&name)>()
